@@ -5,42 +5,42 @@ import warnings
 import matplotlib
 from math import sqrt
 
-def get_month_slices(datetime_index: pd.DatetimeIndex) -> list:
-    """
-    Creates a list of slices, each representing a continuous range of months within a given DatetimeIndex.
+# def get_month_slices(datetime_index: pd.DatetimeIndex) -> list:
+#     """
+#     Creates a list of slices, each representing a continuous range of months within a given DatetimeIndex.
 
-    This function is designed to split a pandas DatetimeIndex into continuous ranges of months. It iterates through the 
-    DatetimeIndex, and whenever a change in the month is detected, it creates a slice object representing the range 
-    of the previous month and appends it to a list. The final list of slices is then returned.
+#     This function is designed to split a pandas DatetimeIndex into continuous ranges of months. It iterates through the 
+#     DatetimeIndex, and whenever a change in the month is detected, it creates a slice object representing the range 
+#     of the previous month and appends it to a list. The final list of slices is then returned.
 
-    Args:
-        datetime_index (pd.DatetimeIndex): A pandas DatetimeIndex object containing datetime entries, assumed to be 
-                                           sorted in ascending order.
+#     Args:
+#         datetime_index (pd.DatetimeIndex): A pandas DatetimeIndex object containing datetime entries, assumed to be 
+#                                            sorted in ascending order.
 
-    Returns:
-        list: A list of slice objects, where each slice represents a continuous range of months within the input 
-              DatetimeIndex.
+#     Returns:
+#         list: A list of slice objects, where each slice represents a continuous range of months within the input 
+#               DatetimeIndex.
 
-    Example:
-        >>> datetime_index = pd.date_range("2022-01-01", "2022-03-31", freq="D")
-        >>> month_slices = create_month_slices(datetime_index)
-        >>> print(month_slices)
-        [slice(0, 31, None), slice(31, 59, None), slice(59, 90, None)]
-    """
-    month_slices = []
-    start_idx = 0
-    curr_month = datetime_index[0].month
+#     Example:
+#         >>> datetime_index = pd.date_range("2022-01-01", "2022-03-31", freq="D")
+#         >>> month_slices = create_month_slices(datetime_index)
+#         >>> print(month_slices)
+#         [slice(0, 31, None), slice(31, 59, None), slice(59, 90, None)]
+#     """
+#     month_slices = []
+#     start_idx = 0
+#     curr_month = datetime_index[0].month
 
-    for idx, dt in enumerate(datetime_index[1:], 1):
-        if dt.month != curr_month:
-            month_slices.append(slice(start_idx, idx))
-            start_idx = idx
-            curr_month = dt.month
+#     for idx, dt in enumerate(datetime_index[1:], 1):
+#         if dt.month != curr_month:
+#             month_slices.append(slice(start_idx, idx))
+#             start_idx = idx
+#             curr_month = dt.month
 
-    # Append the slice for the last month
-    month_slices.append(slice(start_idx, len(datetime_index)))
+#     # Append the slice for the last month
+#     month_slices.append(slice(start_idx, len(datetime_index)))
 
-    return month_slices
+#     return month_slices
 
 def format_x_axis(ax, display_labels=True):
     # Set x-axis major tick locator and formatter for months
@@ -69,37 +69,37 @@ def format_x_axis(ax, display_labels=True):
     ax.tick_params(axis='x', which='minor', length=0)
     
 
-def print_costs(cost_usage, cost_peak):
-    # Calculate total cost and print the cost results
-    total_cost = cost_usage + cost_peak
-    print(f"Usage cost: {cost_usage/1e3:,.2f} kNOK ({100 * cost_usage / total_cost:.2f}%)")
-    print(f"Peak cost: {cost_peak/1e3:,.2f} kNOK ({100 * cost_peak / total_cost:.2f}%)")
-    print(f"Total cost: {total_cost/1e3:,.2f} kNOK") 
+# def print_costs(cost_usage, cost_peak):
+#     # Calculate total cost and print the cost results
+#     total_cost = cost_usage + cost_peak
+#     print(f"Usage cost: {cost_usage/1e3:,.2f} kNOK ({100 * cost_usage / total_cost:.2f}%)")
+#     print(f"Peak cost: {cost_peak/1e3:,.2f} kNOK ({100 * cost_peak / total_cost:.2f}%)")
+#     print(f"Total cost: {total_cost/1e3:,.2f} kNOK") 
     
-def plot_power_grid(datetime_index, p_grid, Q):
-    p_grid_series = pd.Series(data=p_grid, index=datetime_index)
-    p_peak_hourly = p_grid_series.groupby(p_grid_series.index.to_period('M')).transform('max').to_numpy()
+# def plot_power_grid(datetime_index, p_grid, Q):
+#     p_grid_series = pd.Series(data=p_grid, index=datetime_index)
+#     p_peak_hourly = p_grid_series.groupby(p_grid_series.index.to_period('M')).transform('max').to_numpy()
 
-    # Create plot of power pulled from the grid and peak demand
-    fig, ax = plt.subplots()
-    ax.plot(datetime_index, p_grid, color="blue", label="Power pulled from the grid")
-    ax.plot(datetime_index, p_peak_hourly, color="red", label="Monthly peak demand")
-    ax.set_ylabel("Power (kW)")
-    ax.grid(True)
+#     # Create plot of power pulled from the grid and peak demand
+#     fig, ax = plt.subplots()
+#     ax.plot(datetime_index, p_grid, color="blue", label="Power pulled from the grid")
+#     ax.plot(datetime_index, p_peak_hourly, color="red", label="Monthly peak demand")
+#     ax.set_ylabel("Power (kW)")
+#     ax.grid(True)
     
-    # Set plot title and legend
-    ax.set_title("No storage" if Q == 0 else f"Storage capacity: {Q:.0f} kW")
-    format_x_axis(ax)
-    if Q == 0:
-        ax.legend(loc='lower center', ncol=2)
+#     # Set plot title and legend
+#     ax.set_title("No storage" if Q == 0 else f"Storage capacity: {Q:.0f} kW")
+#     format_x_axis(ax)
+#     if Q == 0:
+#         ax.legend(loc='lower center', ncol=2)
         
-def plot_state_of_charge(datetime_index, q):
-    # Create plot of power pulled from the grid and peak demand
-    fig, ax = plt.subplots()
-    ax.plot(datetime_index, q, color="blue")
-    ax.set_ylabel("State of charge (kWh)")
-    ax.grid(True)
-    format_x_axis(ax)
+# def plot_state_of_charge(datetime_index, q):
+#     # Create plot of power pulled from the grid and peak demand
+#     fig, ax = plt.subplots()
+#     ax.plot(datetime_index, q, color="blue")
+#     ax.set_ylabel("State of charge (kWh)")
+#     ax.grid(True)
+#     format_x_axis(ax)
 
 def latexify(fig_width=None, fig_height=None, columns=1):
     """Set up matplotlib's RC params for LaTeX plotting.
