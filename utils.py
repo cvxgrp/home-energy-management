@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import cvxpy as cp
+import itertools
 
 def peak_power_cost(z):
     if 0 <= z <= 2:
@@ -14,23 +15,40 @@ def peak_power_cost(z):
     else:
         return 490
     
-def get_y(z_values):
+def get_s(z_values):
     n_months = len(z_values)
-    y = np.zeros((n_months, 5))
+    s = np.zeros((n_months, 5))
     
     for n in range(n_months):
         z = z_values[n]
         if 0 <= z <= 2:
-            y[n, :] = np.array([1, 0, 0, 0, 0])
+            s[n, :] = np.array([1, 0, 0, 0, 0])
         elif 2 < z <= 5:
-            y[n, :] = np.array([0, 1, 0, 0, 0])
+            s[n, :] = np.array([0, 1, 0, 0, 0])
         elif 5 < z <= 10:
-            y[n, :] = np.array([0, 0, 1, 0, 0])
+            s[n, :] = np.array([0, 0, 1, 0, 0])
         elif 10 < z <= 15:
-            y[n, :] = np.array([0, 0, 0, 1, 0])
+            s[n, :] = np.array([0, 0, 0, 1, 0])
         else:
-            y[n, :] = np.array([0, 0, 0, 0, 1])
-    return y
+            s[n, :] = np.array([0, 0, 0, 0, 1])
+    return s
+
+def get_tier(z_values):
+    n_months = len(z_values)
+    
+    for n in range(n_months):
+        z = z_values[n]
+        if 0 <= z <= 2:
+            tier = 0
+        elif 2 < z <= 5:
+            tier = 1
+        elif 5 < z <= 10:
+            tier = 2
+        elif 10 < z <= 15:
+            tier = 3
+        else:
+            tier = 4
+    return tier
 
 
 def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3):
@@ -72,21 +90,7 @@ def print_cost_summary(tou_cost, spot_cost, peak_cost):
     print(f"\tEnergy cost related to time-of-use prices: {tou_cost:,.2f} NOK ({100 * tou_cost / total_cost:.2f}% of total cost)")
     print(f"\tEnergy cost related to day-ahead spot prices: {spot_cost:,.2f} NOK ({100 * spot_cost / total_cost:.2f}% of total cost)")
     print(f"\tPeak power cost: {peak_cost:,.2f} NOK ({100 * peak_cost / total_cost:.2f}% of total cost)\n")
-
-
-def get_z_hourly_values(power, datetime_index, N=3):
-    unique_months = pd.unique(datetime_index.month)
-    z_hourly_values = []
     
-    for month in unique_months:
-        month_mask = (datetime_index.month == month)
-        month_length = sum(month_mask)
-        daily_peak_powers = [power[month_mask][i:i+24].max() for i in range(0, month_length, 24)]
-        N_largest_daily_powers = sorted(daily_peak_powers, reverse=True)[:N]
-        z = sum(N_largest_daily_powers) / N
-        z_hourly_values.extend([z] * month_length)
-        
-    return z_hourly_values
 
 def get_z_values(power, datetime_index, N=3):
     unique_months = pd.unique(datetime_index.month)
@@ -94,10 +98,16 @@ def get_z_values(power, datetime_index, N=3):
     
     for month in unique_months:
         month_mask = (datetime_index.month == month)
-        month_length = sum(month_mask)
-        daily_peak_powers = [power[month_mask][i:i+24].max() for i in range(0, month_length, 24)]
+        unique_days = pd.unique(datetime_index[month_mask].date)
+
+        daily_peak_powers = []
+        for day in unique_days:
+            day_mask = (datetime_index.date == day)
+            daily_peak_power = power[month_mask & day_mask].max()
+            daily_peak_powers.append(daily_peak_power)
+
         N_largest_daily_powers = sorted(daily_peak_powers, reverse=True)[:N]
-        z = sum(N_largest_daily_powers) / N
+        z = sum(N_largest_daily_powers) / min(N, len(daily_peak_powers))
         z_values.append(z)
         
     return z_values
@@ -125,85 +135,6 @@ def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H
 
     load_forecast = np.concatenate((curr_load, baseline_AR_forecast, baseline_forecast))
     return load_forecast
-
-
-# def predict_load(load, baseline, AR_params, t, M, L):
-#     past = load[t-M:t]
-#     past_baseline = baseline[t-M:t]
-#     fut_baseline = baseline[t:t+L]
-#     pred = np.dot(list(reversed(past - past_baseline)), AR_params)
-    
-#     pred = pd.Series(pred, index=fut_baseline.index)
-#     pred += fut_baseline
-#     return pred
-
-# def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H, M, L, K=1, sigma_residual_errors=None):
-#     MIN = load_data.min()
-#     MAX = load_data.max()
-    
-#     if sigma_residual_errors is None:
-#         curr_load = np.array([load_data[sim_start_time + t]])
-#         baseline_AR_forecast = predict_load(load_data, load_baseline, AR_params, sim_start_time+t+1, M, L)[:-1]
-#         scenarios = np.matrix(np.concatenate((curr_load, baseline_AR_forecast)))
-#     else:
-#         scenarios = np.hstack([np.matrix([load_data[sim_start_time+t]]*K).T, np.random.multivariate_normal(predict_load(load_data, load_baseline, AR_params, sim_start_time+t+1, M, L), sigma_residual_errors, K)[:,:-1]])
-    
-#     scenarios = np.clip(scenarios, MIN, MAX)
-#     load_forecast = scenarios.T
-
-#     if load_forecast.shape[0] < H:
-#         extra_baseline = load_baseline[sim_start_time+t+L:sim_start_time+t+H]
-#         extra_baseline_matrix = np.tile(extra_baseline, (K, 1)).T
-#         load_forecast = np.concatenate((load_forecast, extra_baseline_matrix), axis=0)
-
-#     return load_forecast
-
-
-
-# def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H, M, L, load_min, load_max):
-#     curr_load = np.array([load_data[sim_start_time + t]])
-#     baseline_forecast = load_baseline[sim_start_time+t+1:sim_start_time+t+H]
-
-#     load_forecast = np.concatenate((curr_load, baseline_forecast))
-#     return load_forecast
-
-
-
-
-
-
-
-# def make_spot_price_forecast(spot_price_data, spot_price_baseline, datetime_index, sim_start_time, t, H):
-#     current_hour = datetime_index[t].hour
-
-#     # Determine hours with known prices
-#     hours_with_known_prices = 24 - current_hour if current_hour < 13 else (24 - current_hour) + 24
-
-#     # Create forecast
-#     if hours_with_known_prices > H:
-#         spot_price_forecast = spot_price_data[sim_start_time + t: sim_start_time + t + H].values
-#     else:
-#         known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
-#         baseline_prices = spot_price_baseline[sim_start_time + t + hours_with_known_prices: sim_start_time + t + H]
-#         spot_price_forecast = np.concatenate((known_prices, baseline_prices))
-
-#     return spot_price_forecast
-
-# def make_spot_price_forecast(spot_price_data, datetime_index, sim_start_time, t, H):
-#     current_hour = datetime_index[t].hour
-
-#     # Determine hours with known prices
-#     hours_with_known_prices = min(24 - current_hour if current_hour < 13 else (24 - current_hour) + 24, H)
-
-#     # Known prices
-#     known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
-
-#     # If the horizon extends beyond known prices, repeat the last known price
-#     if hours_with_known_prices < H:
-#         repeated_last_price = np.repeat(known_prices[-1], H - hours_with_known_prices)
-#         known_prices = np.concatenate((known_prices, repeated_last_price))
-
-#     return known_prices
 
 
 def make_spot_price_forecast(spot_price_data, datetime_index, sim_start_time, t, H):
@@ -240,170 +171,90 @@ def compute_z(p, datetime_index, p_prev=[], datetime_index_prev=None, N=3):
     return z_values
 
 
-# def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=20, C=10, D=10, q_init=10, q_final=10, p_prev=[], datetime_index_prev=None, N=1):
-#     # Define constants
-#     P = 20
-#     eff_s, eff_c, eff_d = 0.99998, 0.95, 0.95
-#     tier_costs = np.array([83, 147, 252, 371, 490])
-#     tier_thresholds = np.array([2, 5, 10, 15])
-#     z_max = 20
-    
-#     # Define variables
-#     p, c, d, q = cp.Variable(T), cp.Variable(T), cp.Variable(T), cp.Variable(T+1)
-
-#     # Set up energy usage constraints and cost
-#     cons = [0 <= p, p <= P,
-#             load + c == p + d,
-#             q[1:] == eff_s * q[:-1] + eff_c * c - (1/eff_d) * d,
-#             q[0] == q_init, q[-1] == q_final,
-#             0 <= q, q <= Q,
-#             0 <= c, c <= C,
-#             0 <= d, d <= D]
-#     energy_cost = cp.sum(cp.multiply(tou_prices + spot_prices, p))
-
-#     # Set up peak power usage constraints and cost
-#     z_values = compute_z(p, datetime_index, p_prev, datetime_index_prev, N)
-#     peak_power_cost = 0
-#     for z in z_values:
-#         y = cp.Variable(len(tier_costs), boolean=True)
-#         peak_power_cost += cp.matmul(tier_costs, y)
-#         cons += [z <= cp.matmul(tier_thresholds, y[:-1]) + z_max * y[-1], cp.sum(y) == 1]
-
-#     # Solve the optimization problem
-#     cost = energy_cost + peak_power_cost
-#     problem = cp.Problem(cp.Minimize(cost), cons)
-#     problem.solve(solver=cp.GUROBI)
-    
-#     return p.value, q.value, c.value, d.value, cost.value
-
-def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=1, relax=False, resolve=False, y_new=None):
+def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=3, s=None):
     # Define constants
     P = 20
     eff_s, eff_c, eff_d = 0.99998, 0.95, 0.95
     tier_costs = np.array([83, 147, 252, 371, 490])
-    tier_thresholds = np.array([2, 5, 10, 15])
-    z_max = 20
+    tier_thresholds = np.array([2, 5, 10, 15, 20])
     
     # Define variables
     p, c, d, q = cp.Variable(T), cp.Variable(T), cp.Variable(T), cp.Variable(T+1)
 
-    # Set up energy usage constraints and cost
-    cons = [0 <= p, p <= P,
-            load + c == p + d,
+    # Define constraints
+    cons = [0 <= p, p <= P, load + c == p + d,
             q[1:] == eff_s * q[:-1] + eff_c * c - (1/eff_d) * d,
             q[0] == q_init, q[-1] == q_final,
-            0 <= q, q <= Q,
-            0 <= c, c <= C,
-            0 <= d, d <= D]
+            0 <= q, q <= Q, 0 <= c, c <= C, 0 <= d, d <= D]
+    
+    # Define energy charges
     energy_cost = cp.sum(cp.multiply(tou_prices + spot_prices, p))
 
-    # Set up peak power usage constraints and cost
+    # Define constraints and cost function related to peak power charges
     z_values = compute_z(p, datetime_index, p_prev, datetime_index_prev, N)
     peak_power_cost = 0
     for i, z in enumerate(z_values):
-        if relax:
-            y = cp.Variable(len(tier_costs))
-            cons += [z <= cp.matmul(tier_thresholds, y[:-1]) + z_max * y[-1], cp.sum(y) == 1, y <= 1, y >=0]
-        elif resolve:
-            y = y_new[i, :]
-            cons += [z <= cp.matmul(tier_thresholds, y[:-1]) + z_max * y[-1]]
-        else:   
-            y = cp.Variable(len(tier_costs), boolean=True)
-            cons += [z <= cp.matmul(tier_thresholds, y[:-1]) + z_max * y[-1], cp.sum(y) == 1]
-        peak_power_cost += cp.matmul(tier_costs, y)
+        if s:
+            peak_power_cost += cp.matmul(tier_costs, s[i])
+            cons += [z <= cp.matmul(tier_thresholds, s[i])]
+            solver = None
+        else:
+            _s = cp.Variable(len(tier_costs), boolean=True)
+            peak_power_cost += cp.matmul(tier_costs, _s)
+            cons += [z <= cp.matmul(tier_thresholds, _s), cp.sum(_s) == 1]
+            solver = cp.GUROBI
 
-    # Solve the optimization problem
+    # Define total cost
     cost = energy_cost + peak_power_cost
+    
+    # Define problem 
     problem = cp.Problem(cp.Minimize(cost), cons)
-    if relax or resolve:
-        problem.solve()
-    else:
-        problem.solve(solver=cp.GUROBI)
+    
+    # Solve
+    problem.solve(solver=solver)
     
     return p.value, q.value, c.value, d.value, cost.value, problem.status
 
 
-# def optimize(load, tou_prices, spot_prices, T, datetime_index, K=1, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=1, relax=False, resolve=False, y_new=None):
-#     # Define constants
-#     P = 20
-#     eff_s, eff_c, eff_d = 0.99998, 0.95, 0.95
-#     tier_costs = np.array([83, 147, 252, 371, 490])
-#     tier_thresholds = np.array([2, 5, 10, 15, 20])
-    
-#     # Define variables
-#     p = cp.Variable((T, K))
-#     c = cp.Variable((T, K))
-#     d = cp.Variable((T, K))
-#     q = cp.Variable((T+1, K))
-    
-#     # Set up energy usage constraints and cost
-#     cons = [0 <= p, p <= P,
-#             load + c == p + d,
-#             q[1:, :] == eff_s * q[:-1, :] + eff_c * c - (1/eff_d) * d,
-#             q[0, :] == q_init, q[-1, :] == q_final,
-#             0 <= q, q <= Q,
-#             0 <= c, c <= C,
-#             0 <= d, d <= D]
-    
-#     # All scenarios have the same decision variables in the first time period
-#     cons += [p[0, :] - p[0, 0] == 0, c[0, :] - c[0, 0] == 0, d[0, :] - d[0, 0] == 0]
-    
-#     # Energy cost
-#     energy_cost = 0
-#     for k in range(K):
-#         energy_cost += cp.sum(cp.multiply(tou_prices + spot_prices, p[:, k]))
-    
-#     # Set up peak power usage constraints and cost
-#     peak_power_cost = []
-#     for k in range(K):
-#         _peak_power_cost = 0
-#         z_values = compute_z(p[:, k], datetime_index, p_prev, datetime_index_prev, N)
-#         for z in z_values:  
-#             y = cp.Variable(len(tier_costs), boolean=True)
-#             cons += [z <= cp.matmul(tier_thresholds, y), cp.sum(y) == 1]
-#             _peak_power_cost += cp.matmul(tier_costs, y)
-#         peak_power_cost.append(_peak_power_cost)
-
-#     peak_power_cost = cp.sum(cp.hstack(peak_power_cost))
-#     # Solve the optimization problem
-#     cost = (1/K) * (energy_cost + peak_power_cost)
-#     problem = cp.Problem(cp.Minimize(cost), cons)
-#     problem.solve(verbose=True)
-    
-#     return p.value, q.value, c.value, d.value, cost.value, problem.status
-
-
-def shift_one(y):
-    for j in range(y.shape[1] - 1):  # Loop over columns, except the last one
-        for i in range(y.shape[0]):  # Loop over rows
-            if y[i, j] == 1:
-                y[i, j] = 0
-                y[i, j + 1] = 1
-                return y  # Exit function once the first 1 is shifted
-    return y  # If no shift was made, return original array
-
-
-def relax_and_resolve(load, tou_prices, spot_prices, T, datetime_index, q_init=12.5, p_prev=[], datetime_index_prev=None, N=3):
-    # Relax integer constraints and solve relaxed problem
-    p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, 
-                                        q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, relax=True)
-    
-    # Recover the relaxed variables and round them down
-    z = get_z_values(p, datetime_index, N)
-    z = np.floor(z)
+def global_search(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=1):
+    # Filter combinations in first repetition
+    filter_combinations = False
     if p_prev:
-        z_curr = np.max(p_prev)
-        z = np.maximum(z, z_curr)
-    y_new = get_y(z)
+        z_curr =  get_z_values(np.array(p_prev), datetime_index_prev, N=3)
+        tier_curr = get_tier(z_curr)
+        filter_combinations = True
     
-    # Resolve with new integer variables
-    p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, 
-                                        q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, resolve=True, y_new=y_new)
+    # Get the combinations
+    tiers = [0, 1, 2, 3, 4]
+    num_months = len(pd.unique(datetime_index.month))
+    combinations = np.eye(len(tiers))
 
-    # If the relaxed problem is infeasible, increase the lowest tier and try again
-    while status != "optimal":
-        y_new = shift_one(y_new)
-        p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, 
-                                            q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, resolve=True, y_new=y_new)
-    
-    return p, q, c, d, cost, status
+    all_combinations = list(itertools.product(tiers, repeat=num_months))
+
+    # If in the first repetition, filter the first element of the combinations
+    if filter_combinations:
+        all_combinations = [combination for combination in all_combinations if combination[0] >= tier_curr]
+
+    # Convert the tiers in the combinations to their corresponding one-hot encoded numpy arrays
+    one_hot_combinations = []
+    for combination in all_combinations:
+        one_hot_combination = tuple(combinations[tier] for tier in combination)
+        one_hot_combinations.append(one_hot_combination)
+
+    # Initialize a variable to store the best result
+    best_result = None
+    best_cost = np.inf  # Start with infinity so any cost will be lower
+
+    # Solve LP for each tier combination
+    for combination in one_hot_combinations:
+        p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, N=N, s=combination)
+        
+        # If the problem was solved successfully and the cost is lower than the best cost found so far, update the best result
+        if status == 'optimal' and cost < best_cost:
+            best_result = (p, q, c, d, cost, status)
+            best_cost = cost
+
+    # After the loop, best_result contains the variables and cost for the problem that achieved the lowest cost
+    p_best, q_best, c_best, d_best, cost_best, status_best = best_result
+    return p_best, q_best, c_best, d_best, cost_best, status_best
+
