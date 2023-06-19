@@ -51,7 +51,7 @@ def get_tier(z_values):
     return tier
 
 
-def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3):
+def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3, round=False):
     unique_months = pd.unique(datetime_index.month)
     monthly_tou_costs = []
     monthly_spot_costs = []
@@ -73,7 +73,9 @@ def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3):
         daily_peak_powers = [power[month_mask][i:i+24].max() for i in range(0, month_length, 24)]
         N_largest_daily_powers = sorted(daily_peak_powers, reverse=True)[:N]
         z = sum(N_largest_daily_powers) / N
-        month_peak_cost = peak_power_cost(np.round(z))
+        if round:
+            z = np.round(z)
+        month_peak_cost = peak_power_cost(z)
         monthly_peak_costs.append(month_peak_cost)
     
     # Total costs
@@ -171,10 +173,10 @@ def compute_z(p, datetime_index, p_prev=[], datetime_index_prev=None, N=3):
     return z_values
 
 
-def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=3, s=None):
+def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=3, s=None, verbose=False, solver=None):
     # Define constants
     P = 20
-    eff_s, eff_c, eff_d = 0.99998, 0.95, 0.95
+    eta_s, eta_c, eta_d = 0.99998, 0.95, 0.95
     tier_costs = np.array([83, 147, 252, 371, 490])
     tier_thresholds = np.array([2, 5, 10, 15, 20])
     
@@ -183,7 +185,7 @@ def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20,
 
     # Define constraints
     cons = [0 <= p, p <= P, load + c == p + d,
-            q[1:] == eff_s * q[:-1] + eff_c * c - (1/eff_d) * d,
+            q[1:] == eta_s * q[:-1] + eta_c * c - (1/eta_d) * d,
             q[0] == q_init, q[-1] == q_final,
             0 <= q, q <= Q, 0 <= c, c <= C, 0 <= d, d <= D]
     
@@ -197,12 +199,10 @@ def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20,
         if s:
             peak_power_cost += cp.matmul(tier_costs, s[i])
             cons += [z <= cp.matmul(tier_thresholds, s[i])]
-            solver = None
         else:
             _s = cp.Variable(len(tier_costs), boolean=True)
             peak_power_cost += cp.matmul(tier_costs, _s)
             cons += [z <= cp.matmul(tier_thresholds, _s), cp.sum(_s) == 1]
-            solver = cp.GUROBI
 
     # Define total cost
     cost = energy_cost + peak_power_cost
@@ -211,7 +211,7 @@ def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20,
     problem = cp.Problem(cp.Minimize(cost), cons)
     
     # Solve
-    problem.solve(solver=solver)
+    problem.solve(verbose=verbose, solver=solver)
     
     return p.value, q.value, c.value, d.value, cost.value, problem.status
 
