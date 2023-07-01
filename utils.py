@@ -115,21 +115,95 @@ def get_z_values(power, datetime_index, N=3):
     return z_values
 
 
-def predict_load(load, baseline, AR_params, t, M, L, load_min, load_max):
-    past = load[t-M:t]
+# def predict_load(load, baseline, AR_params, t, M, L, load_min, load_max):
+#     past = load[t-M:t]
+#     past_baseline = baseline[t-M:t]
+#     fut_baseline = baseline[t:t+L]
+
+#     future_res_prediction = (past - past_baseline).values @ AR_params
+#     future_res_prediction = pd.Series(future_res_prediction, index=fut_baseline.index)
+#     pred = fut_baseline + future_res_prediction
+#     pred = np.clip(pred, load_min, load_max)
+    
+#     return pred
+
+
+# def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H, M, L, load_min, load_max):
+#     curr_load = np.array([load_data[sim_start_time + t]])
+#     baseline_AR_forecast = predict_load(load_data, load_baseline, AR_params, sim_start_time+t+1, M, L, load_min, load_max)[:H-1]
+#     if H > L:
+#         baseline_forecast = load_baseline[sim_start_time+t+1+L:sim_start_time+t+H]
+#     else:
+#         baseline_forecast = np.array([])
+
+#     load_forecast = np.concatenate((curr_load, baseline_AR_forecast, baseline_forecast))
+#     return load_forecast
+
+
+# def make_spot_price_forecast(spot_price_data, datetime_index, sim_start_time, t, H):
+#     current_hour = datetime_index[t].hour
+
+#     # Determine hours with known prices
+#     hours_with_known_prices = min(24 - current_hour if current_hour < 13 else (24 - current_hour) + 24, H)
+
+#     # Known prices
+#     known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
+
+#     # If the horizon extends beyond known prices, repeat the minimum known price
+#     if hours_with_known_prices < H:
+#         repeated_min_price = np.repeat(np.mean(known_prices), H - hours_with_known_prices)
+#         known_prices = np.concatenate((known_prices, repeated_min_price))
+
+#     return known_prices
+
+
+
+# # Simple forecast forecast
+# def make_load_forecast(load_data, load_baseline, sim_start_time, t, H):
+#     curr_load = np.array([load_data[sim_start_time + t]])
+#     pred = load_data[sim_start_time+t+1-24:sim_start_time+t+24-24]
+#     one_day = np.concatenate((curr_load, pred))
+#     forecast = np.tile(one_day, 30)
+#     return forecast
+
+# def make_spot_price_forecast(spot_price_data, datetime_index, sim_start_time, t, H):
+#     current_hour = datetime_index[t].hour
+
+#     # Determine hours with known prices
+#     hours_with_known_prices = min(24 - current_hour if current_hour < 13 else (24 - current_hour) + 24, H)
+
+#     # Known prices
+#     known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
+
+#     # If the horizon extends beyond known prices, repeat the minimum known price
+#     if hours_with_known_prices < H:
+#         repeated_min_price = np.repeat(known_prices[-1], H - hours_with_known_prices)
+#         known_prices = np.concatenate((known_prices, repeated_min_price))
+
+#     return known_prices
+
+
+
+
+
+
+# Baseline-residual forecast
+def predict(data, baseline, AR_params, t, M, L, min, max):
+    past = data[t-M:t]
     past_baseline = baseline[t-M:t]
     fut_baseline = baseline[t:t+L]
-    pred = np.dot(list(reversed(past - past_baseline)), AR_params)
+
+    future_res_prediction = (past - past_baseline).values @ AR_params
+    future_res_prediction = pd.Series(future_res_prediction, index=fut_baseline.index)
+    pred = fut_baseline + future_res_prediction
+    pred = np.clip(pred, min, max)
     
-    pred = pd.Series(pred, index=fut_baseline.index)
-    pred += fut_baseline
-    pred = np.clip(pred, load_min, load_max)
     return pred
 
 
 def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H, M, L, load_min, load_max):
     curr_load = np.array([load_data[sim_start_time + t]])
-    baseline_AR_forecast = predict_load(load_data, load_baseline, AR_params, sim_start_time+t+1, M, L, load_min, load_max)[:H-1]
+    baseline_AR_forecast = predict(load_data, load_baseline, AR_params, sim_start_time+t+1, M, L, load_min, load_max)[:H-1]
     if H > L:
         baseline_forecast = load_baseline[sim_start_time+t+1+L:sim_start_time+t+H]
     else:
@@ -139,21 +213,23 @@ def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H
     return load_forecast
 
 
-def make_spot_price_forecast(spot_price_data, datetime_index, sim_start_time, t, H):
-    current_hour = datetime_index[t].hour
+def make_spot_price_forecast(spot_price_data, spot_price_baseline, AR_params, sim_start_time, t, H,  M, L, spot_price_min, spot_price_max):
+    current_hour = spot_price_data.index[t].hour
 
     # Determine hours with known prices
     hours_with_known_prices = min(24 - current_hour if current_hour < 13 else (24 - current_hour) + 24, H)
+    baseline_AR_hours = np.clip(H - hours_with_known_prices, 0, L)
+    baseline_hours = np.maximum(H - hours_with_known_prices - baseline_AR_hours, 0)
 
-    # Known prices
     known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
+    if baseline_AR_hours > 0:
+        baseline_AR_forecast = predict(spot_price_data, spot_price_baseline, AR_params, sim_start_time + t + hours_with_known_prices, M, L, spot_price_min, spot_price_max)[:baseline_AR_hours]
+        spot_price_forecast = np.concatenate((known_prices, baseline_AR_forecast))
+    if baseline_hours > 0:
+        baseline_forecast = spot_price_baseline[sim_start_time+t+hours_with_known_prices+baseline_AR_hours:sim_start_time+t+H]
+        spot_price_forecast = np.concatenate((known_prices, baseline_AR_forecast, baseline_forecast))
 
-    # If the horizon extends beyond known prices, repeat the minimum known price
-    if hours_with_known_prices < H:
-        repeated_min_price = np.repeat(np.mean(known_prices), H - hours_with_known_prices)
-        known_prices = np.concatenate((known_prices, repeated_min_price))
-
-    return known_prices
+    return spot_price_forecast
 
 
 def compute_z(p, datetime_index, p_prev=[], datetime_index_prev=None, N=3):
@@ -247,7 +323,7 @@ def global_search(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, 
 
     # Solve LP for each tier combination
     for combination in one_hot_combinations:
-        p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, N=N, s=combination)
+        p, q, c, d, cost, status = optimize(load=load, tou_prices=tou_prices, spot_prices=spot_prices, T=T, datetime_index=datetime_index, q_init=q_init, p_prev=p_prev, datetime_index_prev=datetime_index_prev, N=N, s=combination, solver=cp.MOSEK)
         
         # If the problem was solved successfully and the cost is lower than the best cost found so far, update the best result
         if status == 'optimal' and cost < best_cost:
