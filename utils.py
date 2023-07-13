@@ -89,9 +89,9 @@ def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3, round=Fal
 def print_cost_summary(tou_cost, spot_cost, peak_cost):
     total_cost = tou_cost + spot_cost + peak_cost
     print(f"Total cost: {total_cost:,.2f} NOK")
-    print(f"\tEnergy cost related to time-of-use prices: {tou_cost:,.2f} NOK ({100 * tou_cost / total_cost:.2f}% of total cost)")
-    print(f"\tEnergy cost related to day-ahead spot prices: {spot_cost:,.2f} NOK ({100 * spot_cost / total_cost:.2f}% of total cost)")
-    print(f"\tPeak power cost: {peak_cost:,.2f} NOK ({100 * peak_cost / total_cost:.2f}% of total cost)\n")
+    print(f"\tTime-of-use energy charges: {tou_cost:,.2f} NOK ({100 * tou_cost / total_cost:.2f}% of total cost)")
+    print(f"\tDay-ahead energy charges: {spot_cost:,.2f} NOK ({100 * spot_cost / total_cost:.2f}% of total cost)")
+    print(f"\tPeak power charges: {peak_cost:,.2f} NOK ({100 * peak_cost / total_cost:.2f}% of total cost)\n")
     
 
 def get_z_values(power, datetime_index, N=3):
