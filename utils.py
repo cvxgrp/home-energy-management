@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import cvxpy as cp
-import itertools
 
 def peak_power_cost(z):
     if 0 <= z <= 2:
@@ -51,10 +50,10 @@ def get_tier(z_values):
     return tier
 
 
-def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3, round=False):
+def compute_costs(tou_prices, da_prices, power, datetime_index, N=3, round=False):
     unique_months = pd.unique(datetime_index.month)
     monthly_tou_costs = []
-    monthly_spot_costs = []
+    monthly_da_costs = []
     monthly_peak_costs = []
     
     for month in unique_months:
@@ -64,9 +63,9 @@ def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3, round=Fal
         month_tou_cost = np.sum(tou_prices[month_mask] * power[month_mask])
         monthly_tou_costs.append(month_tou_cost)
         
-        # Compute spot cost
-        month_spot_cost = np.sum(spot_prices[month_mask] * power[month_mask])
-        monthly_spot_costs.append(month_spot_cost)
+        # Compute DA cost
+        month_da_cost = np.sum(da_prices[month_mask] * power[month_mask])
+        monthly_da_costs.append(month_da_cost)
         
         # Compute peak cost
         month_length = sum(month_mask)
@@ -80,17 +79,17 @@ def compute_costs(tou_prices, spot_prices, power, datetime_index, N=3, round=Fal
     
     # Total costs
     tou_cost = sum(monthly_tou_costs)
-    spot_cost = sum(monthly_spot_costs)
+    da_cost = sum(monthly_da_costs)
     peak_cost = sum(monthly_peak_costs)
         
-    return monthly_tou_costs, monthly_spot_costs, monthly_peak_costs, tou_cost, spot_cost, peak_cost
+    return monthly_tou_costs, monthly_da_costs, monthly_peak_costs, tou_cost, da_cost, peak_cost
 
 
-def print_cost_summary(tou_cost, spot_cost, peak_cost):
-    total_cost = tou_cost + spot_cost + peak_cost
+def print_cost_summary(tou_cost, da_cost, peak_cost):
+    total_cost = tou_cost + da_cost + peak_cost
     print(f"Total cost: {total_cost:,.2f} NOK")
     print(f"\tTime-of-use energy charges: {tou_cost:,.2f} NOK ({100 * tou_cost / total_cost:.2f}% of total cost)")
-    print(f"\tDay-ahead energy charges: {spot_cost:,.2f} NOK ({100 * spot_cost / total_cost:.2f}% of total cost)")
+    print(f"\tDay-ahead energy charges: {da_cost:,.2f} NOK ({100 * da_cost / total_cost:.2f}% of total cost)")
     print(f"\tPeak power charges: {peak_cost:,.2f} NOK ({100 * peak_cost / total_cost:.2f}% of total cost)\n")
     
 
@@ -140,23 +139,23 @@ def make_load_forecast(load_data, load_baseline, AR_params, sim_start_time, t, H
     return load_forecast
 
 
-def make_spot_price_forecast(spot_price_data, spot_price_baseline, AR_params, sim_start_time, t, H,  M, L, spot_price_min, spot_price_max):
-    current_hour = spot_price_data.index[t].hour
+def make_da_price_forecast(da_price_data, da_price_baseline, AR_params, sim_start_time, t, H,  M, L, da_price_min, da_price_max):
+    current_hour = da_price_data.index[t].hour
 
     # Determine hours with known prices
     hours_with_known_prices = min(24 - current_hour if current_hour < 13 else (24 - current_hour) + 24, H)
     baseline_AR_hours = np.clip(H - hours_with_known_prices, 0, L)
     baseline_hours = np.maximum(H - hours_with_known_prices - baseline_AR_hours, 0)
 
-    known_prices = spot_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
+    known_prices = da_price_data[sim_start_time + t: sim_start_time + t + hours_with_known_prices].values
     if baseline_AR_hours > 0:
-        baseline_AR_forecast = predict(spot_price_data, spot_price_baseline, AR_params, sim_start_time + t + hours_with_known_prices, M, L, spot_price_min, spot_price_max)[:baseline_AR_hours]
-        spot_price_forecast = np.concatenate((known_prices, baseline_AR_forecast))
+        baseline_AR_forecast = predict(da_price_data, da_price_baseline, AR_params, sim_start_time + t + hours_with_known_prices, M, L, da_price_min, da_price_max)[:baseline_AR_hours]
+        da_price_forecast = np.concatenate((known_prices, baseline_AR_forecast))
     if baseline_hours > 0:
-        baseline_forecast = spot_price_baseline[sim_start_time+t+hours_with_known_prices+baseline_AR_hours:sim_start_time+t+H]
-        spot_price_forecast = np.concatenate((known_prices, baseline_AR_forecast, baseline_forecast))
+        baseline_forecast = da_price_baseline[sim_start_time+t+hours_with_known_prices+baseline_AR_hours:sim_start_time+t+H]
+        da_price_forecast = np.concatenate((known_prices, baseline_AR_forecast, baseline_forecast))
 
-    return spot_price_forecast
+    return da_price_forecast
 
 
 def compute_z(p, datetime_index, p_prev=[], datetime_index_prev=None, N=3):
@@ -176,7 +175,7 @@ def compute_z(p, datetime_index, p_prev=[], datetime_index_prev=None, N=3):
     return z_values
 
 
-def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=3, s=None, verbose=False, solver=None):
+def optimize(load, tou_prices, da_prices, T, datetime_index, Q=40, C=20, D=20, q_init=20, q_final=20, p_prev=[], datetime_index_prev=None, N=3, s=None, verbose=False, solver=None):
     # Define constants
     P = 20
     eta_s, eta_c, eta_d = 0.99998, 0.95, 0.95
@@ -193,9 +192,9 @@ def optimize(load, tou_prices, spot_prices, T, datetime_index, Q=40, C=20, D=20,
             0 <= q, q <= Q, 0 <= c, c <= C, 0 <= d, d <= D]
     
     # Define energy charges
-    energy_cost = cp.sum(cp.multiply(tou_prices + spot_prices, p))
+    energy_cost = cp.sum(cp.multiply(tou_prices + da_prices, p))
 
-    # Define constraints and cost function related to peak power charges
+    # Define peak power charges and constraints
     z_values = compute_z(p, datetime_index, p_prev, datetime_index_prev, N)
     peak_power_cost = 0
     for i, z in enumerate(z_values):
