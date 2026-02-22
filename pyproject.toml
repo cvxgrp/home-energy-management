@@ -1,0 +1,29 @@
+[project]
+name = "home-energy-management"
+version = "0.1.0"
+description = "Home energy management under tiered peak power charges"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cvxpy>=1.7.3",
+    "gurobipy>=13.0.0",
+    "matplotlib>=3.10.7",
+    "mosek<11",
+    "numpy>=2.3.4",
+    "pandas>=2.3.3",
+    "pytest>=8.4.2",
+    "requests>=2.32.5",
+    "tqdm>=4.67.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hem"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+]
